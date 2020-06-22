@@ -16,18 +16,19 @@ var Bounds = require('../geometry/Bounds');
 var Events = require('../core/Events');
 var Grid = require('../collision/Grid');
 var Vector = require('../geometry/Vector');
+var Mouse = require('../core/Mouse');
 
 (function() {
-    
+
     var _requestAnimationFrame,
         _cancelAnimationFrame;
 
     if (typeof window !== 'undefined') {
         _requestAnimationFrame = window.requestAnimationFrame || window.webkitRequestAnimationFrame
-                                      || window.mozRequestAnimationFrame || window.msRequestAnimationFrame 
+                                      || window.mozRequestAnimationFrame || window.msRequestAnimationFrame
                                       || function(callback){ window.setTimeout(function() { callback(Common.now()); }, 1000 / 60); };
-   
-        _cancelAnimationFrame = window.cancelAnimationFrame || window.mozCancelAnimationFrame 
+
+        _cancelAnimationFrame = window.cancelAnimationFrame || window.mozCancelAnimationFrame
                                       || window.webkitCancelAnimationFrame || window.msCancelAnimationFrame;
     }
 
@@ -51,8 +52,8 @@ var Vector = require('../geometry/Vector');
                 width: 800,
                 height: 600,
                 pixelRatio: 1,
-                background: '#fafafa',
-                wireframeBackground: '#222',
+                background: '#18181d',
+                wireframeBackground: '#0f0f13',
                 hasBounds: !!options.bounds,
                 enabled: true,
                 wireframes: true,
@@ -88,12 +89,12 @@ var Vector = require('../geometry/Vector');
         render.context = render.canvas.getContext('2d');
         render.textures = {};
 
-        render.bounds = render.bounds || { 
-            min: { 
+        render.bounds = render.bounds || {
+            min: {
                 x: 0,
                 y: 0
-            }, 
-            max: { 
+            },
+            max: {
                 x: render.canvas.width,
                 y: render.canvas.height
             }
@@ -105,7 +106,7 @@ var Vector = require('../geometry/Vector');
 
         if (Common.isElement(render.element)) {
             render.element.appendChild(render.canvas);
-        } else {
+        } else if (!render.canvas.parentNode) {
             Common.log('Render.create: options.element was undefined, render.canvas was created but not appended', 'warn');
         }
 
@@ -154,7 +155,132 @@ var Vector = require('../geometry/Vector');
         canvas.height = options.height * pixelRatio;
         canvas.style.width = options.width + 'px';
         canvas.style.height = options.height + 'px';
-        render.context.scale(pixelRatio, pixelRatio);
+    };
+
+    /**
+     * Positions and sizes the viewport around the given object bounds.
+     * Objects must have at least one of the following properties:
+     * - `object.bounds`
+     * - `object.position`
+     * - `object.min` and `object.max`
+     * - `object.x` and `object.y`
+     * @method lookAt
+     * @param {render} render
+     * @param {object[]} objects
+     * @param {vector} [padding]
+     * @param {bool} [center=true]
+     */
+    Render.lookAt = function(render, objects, padding, center) {
+        center = typeof center !== 'undefined' ? center : true;
+        objects = Common.isArray(objects) ? objects : [objects];
+        padding = padding || {
+            x: 0,
+            y: 0
+        };
+
+        // find bounds of all objects
+        var bounds = {
+            min: { x: Infinity, y: Infinity },
+            max: { x: -Infinity, y: -Infinity }
+        };
+
+        for (var i = 0; i < objects.length; i += 1) {
+            var object = objects[i],
+                min = object.bounds ? object.bounds.min : (object.min || object.position || object),
+                max = object.bounds ? object.bounds.max : (object.max || object.position || object);
+
+            if (min && max) {
+                if (min.x < bounds.min.x)
+                    bounds.min.x = min.x;
+
+                if (max.x > bounds.max.x)
+                    bounds.max.x = max.x;
+
+                if (min.y < bounds.min.y)
+                    bounds.min.y = min.y;
+
+                if (max.y > bounds.max.y)
+                    bounds.max.y = max.y;
+            }
+        }
+
+        // find ratios
+        var width = (bounds.max.x - bounds.min.x) + 2 * padding.x,
+            height = (bounds.max.y - bounds.min.y) + 2 * padding.y,
+            viewHeight = render.canvas.height,
+            viewWidth = render.canvas.width,
+            outerRatio = viewWidth / viewHeight,
+            innerRatio = width / height,
+            scaleX = 1,
+            scaleY = 1;
+
+        // find scale factor
+        if (innerRatio > outerRatio) {
+            scaleY = innerRatio / outerRatio;
+        } else {
+            scaleX = outerRatio / innerRatio;
+        }
+
+        // enable bounds
+        render.options.hasBounds = true;
+
+        // position and size
+        render.bounds.min.x = bounds.min.x;
+        render.bounds.max.x = bounds.min.x + width * scaleX;
+        render.bounds.min.y = bounds.min.y;
+        render.bounds.max.y = bounds.min.y + height * scaleY;
+
+        // center
+        if (center) {
+            render.bounds.min.x += width * 0.5 - (width * scaleX) * 0.5;
+            render.bounds.max.x += width * 0.5 - (width * scaleX) * 0.5;
+            render.bounds.min.y += height * 0.5 - (height * scaleY) * 0.5;
+            render.bounds.max.y += height * 0.5 - (height * scaleY) * 0.5;
+        }
+
+        // padding
+        render.bounds.min.x -= padding.x;
+        render.bounds.max.x -= padding.x;
+        render.bounds.min.y -= padding.y;
+        render.bounds.max.y -= padding.y;
+
+        // update mouse
+        if (render.mouse) {
+            Mouse.setScale(render.mouse, {
+                x: (render.bounds.max.x - render.bounds.min.x) / render.canvas.width,
+                y: (render.bounds.max.y - render.bounds.min.y) / render.canvas.height
+            });
+
+            Mouse.setOffset(render.mouse, render.bounds.min);
+        }
+    };
+
+    /**
+     * Applies viewport transforms based on `render.bounds` to a render context.
+     * @method startViewTransform
+     * @param {render} render
+     */
+    Render.startViewTransform = function(render) {
+        var boundsWidth = render.bounds.max.x - render.bounds.min.x,
+            boundsHeight = render.bounds.max.y - render.bounds.min.y,
+            boundsScaleX = boundsWidth / render.options.width,
+            boundsScaleY = boundsHeight / render.options.height;
+
+        render.context.setTransform(
+            render.options.pixelRatio / boundsScaleX, 0, 0, 
+            render.options.pixelRatio / boundsScaleY, 0, 0
+        );
+        
+        render.context.translate(-render.bounds.min.x, -render.bounds.min.y);
+    };
+
+    /**
+     * Resets all transforms on the render context.
+     * @method endViewTransform
+     * @param {render} render
+     */
+    Render.endViewTransform = function(render) {
+        render.context.setTransform(render.options.pixelRatio, 0, 0, render.options.pixelRatio, 0, 0);
     };
 
     /**
@@ -194,11 +320,6 @@ var Vector = require('../geometry/Vector');
 
         // handle bounds
         if (options.hasBounds) {
-            var boundsWidth = render.bounds.max.x - render.bounds.min.x,
-                boundsHeight = render.bounds.max.y - render.bounds.min.y,
-                boundsScaleX = boundsWidth / options.width,
-                boundsScaleY = boundsHeight / options.height;
-
             // filter out bodies that are not in view
             for (i = 0; i < allBodies.length; i++) {
                 var body = allBodies[i];
@@ -225,11 +346,24 @@ var Vector = require('../geometry/Vector');
             }
 
             // transform the view
-            context.scale(1 / boundsScaleX, 1 / boundsScaleY);
-            context.translate(-render.bounds.min.x, -render.bounds.min.y);
+            Render.startViewTransform(render);
+
+            // update mouse
+            if (render.mouse) {
+                Mouse.setScale(render.mouse, {
+                    x: (render.bounds.max.x - render.bounds.min.x) / render.options.width,
+                    y: (render.bounds.max.y - render.bounds.min.y) / render.options.height
+                });
+
+                Mouse.setOffset(render.mouse, render.bounds.min);
+            }
         } else {
             constraints = allConstraints;
             bodies = allBodies;
+
+            if (render.options.pixelRatio !== 1) {
+                render.context.setTransform(render.options.pixelRatio, 0, 0, render.options.pixelRatio, 0, 0);
+            }
         }
 
         if (!options.wireframes || (engine.enableSleeping && options.showSleeping)) {
@@ -248,7 +382,7 @@ var Vector = require('../geometry/Vector');
 
         if (options.showAxes || options.showAngleIndicator)
             Render.bodyAxes(render, bodies, context);
-        
+
         if (options.showPositions)
             Render.bodyPositions(render, bodies, context);
 
@@ -280,7 +414,7 @@ var Vector = require('../geometry/Vector');
 
         if (options.hasBounds) {
             // revert view transforms
-            context.setTransform(options.pixelRatio, 0, 0, options.pixelRatio, 0, 0);
+            Render.endViewTransform(render);
         }
 
         Events.trigger(render, 'afterRender', event);
@@ -329,7 +463,7 @@ var Vector = require('../geometry/Vector');
                 text += "mid: " + metrics.midEff + space;
                 text += "narrow: " + metrics.narrowEff + space;
             }
-            // @endif            
+            // @endif
 
             render.debugString = text;
             render.debugTimestamp = engine.timing.timestamp;
@@ -369,28 +503,66 @@ var Vector = require('../geometry/Vector');
                 continue;
 
             var bodyA = constraint.bodyA,
-                bodyB = constraint.bodyB;
+                bodyB = constraint.bodyB,
+                start,
+                end;
 
             if (bodyA) {
-                c.beginPath();
-                c.moveTo(bodyA.position.x + constraint.pointA.x, bodyA.position.y + constraint.pointA.y);
+                start = Vector.add(bodyA.position, constraint.pointA);
             } else {
-                c.beginPath();
-                c.moveTo(constraint.pointA.x, constraint.pointA.y);
+                start = constraint.pointA;
             }
 
-            if (bodyB) {
-                c.lineTo(bodyB.position.x + constraint.pointB.x, bodyB.position.y + constraint.pointB.y);
+            if (constraint.render.type === 'pin') {
+                c.beginPath();
+                c.arc(start.x, start.y, 3, 0, 2 * Math.PI);
+                c.closePath();
             } else {
-                c.lineTo(constraint.pointB.x, constraint.pointB.y);
+                if (bodyB) {
+                    end = Vector.add(bodyB.position, constraint.pointB);
+                } else {
+                    end = constraint.pointB;
+                }
+
+                c.beginPath();
+                c.moveTo(start.x, start.y);
+
+                if (constraint.render.type === 'spring') {
+                    var delta = Vector.sub(end, start),
+                        normal = Vector.perp(Vector.normalise(delta)),
+                        coils = Math.ceil(Common.clamp(constraint.length / 5, 12, 20)),
+                        offset;
+
+                    for (var j = 1; j < coils; j += 1) {
+                        offset = j % 2 === 0 ? 1 : -1;
+
+                        c.lineTo(
+                            start.x + delta.x * (j / coils) + normal.x * offset * 4,
+                            start.y + delta.y * (j / coils) + normal.y * offset * 4
+                        );
+                    }
+                }
+
+                c.lineTo(end.x, end.y);
             }
 
-            c.lineWidth = constraint.render.lineWidth;
-            c.strokeStyle = constraint.render.strokeStyle;
-            c.stroke();
+            if (constraint.render.lineWidth) {
+                c.lineWidth = constraint.render.lineWidth;
+                c.strokeStyle = constraint.render.strokeStyle;
+                c.stroke();
+            }
+
+            if (constraint.render.anchors) {
+                c.fillStyle = constraint.render.strokeStyle;
+                c.beginPath();
+                c.arc(start.x, start.y, 3, 0, 2 * Math.PI);
+                c.arc(end.x, end.y, 3, 0, 2 * Math.PI);
+                c.closePath();
+                c.fill();
+            }
         }
     };
-    
+
     /**
      * Description
      * @private
@@ -482,20 +654,20 @@ var Vector = require('../geometry/Vector');
                     var sprite = part.render.sprite,
                         texture = _getTexture(render, sprite.texture);
 
-                    c.translate(part.position.x, part.position.y); 
+                    c.translate(part.position.x, part.position.y);
                     c.rotate(part.angle);
 
                     c.drawImage(
                         texture,
-                        texture.width * -sprite.xOffset * sprite.xScale, 
-                        texture.height * -sprite.yOffset * sprite.yScale, 
-                        texture.width * sprite.xScale, 
+                        texture.width * -sprite.xOffset * sprite.xScale,
+                        texture.height * -sprite.yOffset * sprite.yScale,
+                        texture.width * sprite.xScale,
                         texture.height * sprite.yScale
                     );
 
                     // revert translation, hopefully faster than save / restore
                     c.rotate(-part.angle);
-                    c.translate(-part.position.x, -part.position.y); 
+                    c.translate(-part.position.x, -part.position.y);
                 } else {
                     // part polygon
                     if (part.circleRadius) {
@@ -516,22 +688,26 @@ var Vector = require('../geometry/Vector');
                                 c.moveTo(part.vertices[(j + 1) % part.vertices.length].x, part.vertices[(j + 1) % part.vertices.length].y);
                             }
                         }
-                        
+
                         c.lineTo(part.vertices[0].x, part.vertices[0].y);
                         c.closePath();
                     }
 
                     if (!options.wireframes) {
                         c.fillStyle = part.render.fillStyle;
-                        c.lineWidth = part.render.lineWidth;
-                        c.strokeStyle = part.render.strokeStyle;
+
+                        if (part.render.lineWidth) {
+                            c.lineWidth = part.render.lineWidth;
+                            c.strokeStyle = part.render.strokeStyle;
+                            c.stroke();
+                        }
+
                         c.fill();
                     } else {
                         c.lineWidth = 1;
                         c.strokeStyle = '#bbb';
+                        c.stroke();
                     }
-
-                    c.stroke();
                 }
 
                 c.globalAlpha = 1;
@@ -582,7 +758,7 @@ var Vector = require('../geometry/Vector');
                         c.moveTo(part.vertices[(j + 1) % part.vertices.length].x, part.vertices[(j + 1) % part.vertices.length].y);
                     }
                 }
-                
+
                 c.lineTo(part.vertices[0].x, part.vertices[0].y);
             }
         }
@@ -622,7 +798,7 @@ var Vector = require('../geometry/Vector');
             for (j = 1; j < body.vertices.length; j++) {
                 c.lineTo(body.vertices[j].x, body.vertices[j].y);
             }
-            
+
             c.lineTo(body.vertices[0].x, body.vertices[0].y);
         }
 
@@ -750,8 +926,8 @@ var Vector = require('../geometry/Vector');
                     for (k = 0; k < part.axes.length; k++) {
                         // render a single axis indicator
                         c.moveTo(part.position.x, part.position.y);
-                        c.lineTo((part.vertices[0].x + part.vertices[part.vertices.length-1].x) / 2, 
-                                 (part.vertices[0].y + part.vertices[part.vertices.length-1].y) / 2);
+                        c.lineTo((part.vertices[0].x + part.vertices[part.vertices.length-1].x) / 2,
+                            (part.vertices[0].y + part.vertices[part.vertices.length-1].y) / 2);
                     }
                 }
             }
@@ -759,12 +935,13 @@ var Vector = require('../geometry/Vector');
 
         if (options.wireframes) {
             c.strokeStyle = 'indianred';
+            c.lineWidth = 1;
         } else {
-            c.strokeStyle = 'rgba(0,0,0,0.8)';
+            c.strokeStyle = 'rgba(255, 255, 255, 0.4)';
             c.globalCompositeOperation = 'overlay';
+            c.lineWidth = 2;
         }
 
-        c.lineWidth = 1;
         c.stroke();
         c.globalCompositeOperation = 'source-over';
     };
@@ -924,7 +1101,7 @@ var Vector = require('../geometry/Vector');
         c.fill();
 
         c.beginPath();
-            
+
         // render collision normals
         for (i = 0; i < pairs.length; i++) {
             pair = pairs[i];
@@ -942,7 +1119,7 @@ var Vector = require('../geometry/Vector');
                     normalPosX = (pair.activeContacts[0].vertex.x + pair.activeContacts[1].vertex.x) / 2;
                     normalPosY = (pair.activeContacts[0].vertex.y + pair.activeContacts[1].vertex.y) / 2;
                 }
-                
+
                 if (collision.bodyB === collision.supports[0].body || collision.bodyA.isStatic === true) {
                     c.moveTo(normalPosX - collision.normal.x * 8, normalPosY - collision.normal.y * 8);
                 } else {
@@ -1048,11 +1225,11 @@ var Vector = require('../geometry/Vector');
             if (grid.buckets[bucketId].length < 2)
                 continue;
 
-            var region = bucketId.split(',');
-            c.rect(0.5 + parseInt(region[0], 10) * grid.bucketWidth, 
-                    0.5 + parseInt(region[1], 10) * grid.bucketHeight, 
-                    grid.bucketWidth, 
-                    grid.bucketHeight);
+            var region = bucketId.split(/C|R/);
+            c.rect(0.5 + parseInt(region[1], 10) * grid.bucketWidth,
+                0.5 + parseInt(region[2], 10) * grid.bucketHeight,
+                grid.bucketWidth,
+                grid.bucketHeight);
         }
 
         c.lineWidth = 1;
@@ -1078,7 +1255,7 @@ var Vector = require('../geometry/Vector');
                 boundsHeight = render.bounds.max.y - render.bounds.min.y,
                 boundsScaleX = boundsWidth / render.options.width,
                 boundsScaleY = boundsHeight / render.options.height;
-            
+
             context.scale(1 / boundsScaleX, 1 / boundsScaleY);
             context.translate(-render.bounds.min.x, -render.bounds.min.y);
         }
@@ -1098,8 +1275,8 @@ var Vector = require('../geometry/Vector');
                 // render body selections
                 bounds = item.bounds;
                 context.beginPath();
-                context.rect(Math.floor(bounds.min.x - 3), Math.floor(bounds.min.y - 3), 
-                             Math.floor(bounds.max.x - bounds.min.x + 6), Math.floor(bounds.max.y - bounds.min.y + 6));
+                context.rect(Math.floor(bounds.min.x - 3), Math.floor(bounds.min.y - 3),
+                    Math.floor(bounds.max.x - bounds.min.x + 6), Math.floor(bounds.max.y - bounds.min.y + 6));
                 context.closePath();
                 context.stroke();
 
@@ -1132,8 +1309,8 @@ var Vector = require('../geometry/Vector');
             context.fillStyle = 'rgba(255,165,0,0.1)';
             bounds = inspector.selectBounds;
             context.beginPath();
-            context.rect(Math.floor(bounds.min.x), Math.floor(bounds.min.y), 
-                         Math.floor(bounds.max.x - bounds.min.x), Math.floor(bounds.max.y - bounds.min.y));
+            context.rect(Math.floor(bounds.min.x), Math.floor(bounds.min.y),
+                Math.floor(bounds.max.x - bounds.min.x), Math.floor(bounds.max.y - bounds.min.y));
             context.closePath();
             context.stroke();
             context.fill();
@@ -1310,7 +1487,7 @@ var Vector = require('../geometry/Vector');
      */
 
     /**
-     * A `Bounds` object that specifies the drawing view region. 
+     * A `Bounds` object that specifies the drawing view region.
      * Rendering will be automatically transformed and scaled to fit within the canvas size (`render.options.width` and `render.options.height`).
      * This allows for creating views that can pan or zoom around the scene.
      * You must also set `render.options.hasBounds` to `true` to enable bounded rendering.

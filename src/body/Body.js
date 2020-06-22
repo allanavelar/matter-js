@@ -42,6 +42,7 @@ var Axes = require('../geometry/Axes');
             type: 'body',
             label: 'Body',
             parts: [],
+            plugin: {},
             angle: 0,
             vertices: Vertices.fromPath('L 0 0 L 40 0 L 40 40 L 0 40'),
             position: { x: 0, y: 0 },
@@ -80,8 +81,20 @@ var Axes = require('../geometry/Axes');
                     xOffset: 0,
                     yOffset: 0
                 },
-                lineWidth: 1.5
-            }
+                lineWidth: 0
+            },
+            events: null,
+            bounds: null,
+            chamfer: null,
+            circleRadius: 0,
+            positionPrev: null,
+            anglePrev: 0,
+            parent: null,
+            axes: null,
+            area: 0,
+            mass: 0,
+            inertia: 0,
+            _original: null
         };
 
         var body = Common.extend(defaults, options);
@@ -122,9 +135,11 @@ var Axes = require('../geometry/Axes');
      * @method _initProperties
      * @private
      * @param {body} body
-     * @param {} options
+     * @param {} [options]
      */
     var _initProperties = function(body, options) {
+        options = options || {};
+
         // init required properties (order is important)
         Body.set(body, {
             bounds: body.bounds || Bounds.create(body.vertices),
@@ -150,8 +165,8 @@ var Axes = require('../geometry/Axes');
         });
 
         // render properties
-        var defaultFillStyle = (body.isStatic ? '#eeeeee' : Common.choose(['#556270', '#4ECDC4', '#C7F464', '#FF6B6B', '#C44D58'])),
-            defaultStrokeStyle = Common.shadeColor(defaultFillStyle, -20);
+        var defaultFillStyle = (body.isStatic ? '#2e2b44' : Common.choose(['#006BA6', '#0496FF', '#FFBC42', '#D81159', '#8F2D56'])),
+            defaultStrokeStyle = '#000';
         body.render.fillStyle = body.render.fillStyle || defaultFillStyle;
         body.render.strokeStyle = body.render.strokeStyle || defaultStrokeStyle;
         body.render.sprite.xOffset += -(body.bounds.min.x - body.position.x) / (body.bounds.max.x - body.bounds.min.x);
@@ -176,11 +191,10 @@ var Axes = require('../geometry/Axes');
         }
 
         for (property in settings) {
-            value = settings[property];
-
-            if (!settings.hasOwnProperty(property))
+            if (!Object.prototype.hasOwnProperty.call(settings, property))
                 continue;
 
+            value = settings[property];
             switch (property) {
 
             case 'isStatic':
@@ -216,6 +230,9 @@ var Axes = require('../geometry/Axes');
             case 'parts':
                 Body.setParts(body, value);
                 break;
+            case 'centre':
+                Body.setCentre(body, value);
+                break;
             default:
                 body[property] = value;
 
@@ -235,6 +252,16 @@ var Axes = require('../geometry/Axes');
             part.isStatic = isStatic;
 
             if (isStatic) {
+                part._original = {
+                    restitution: part.restitution,
+                    friction: part.friction,
+                    mass: part.mass,
+                    inertia: part.inertia,
+                    density: part.density,
+                    inverseMass: part.inverseMass,
+                    inverseInertia: part.inverseInertia
+                };
+
                 part.restitution = 0;
                 part.friction = 1;
                 part.mass = part.inertia = part.density = Infinity;
@@ -247,24 +274,38 @@ var Axes = require('../geometry/Axes');
                 part.speed = 0;
                 part.angularSpeed = 0;
                 part.motion = 0;
+            } else if (part._original) {
+                part.restitution = part._original.restitution;
+                part.friction = part._original.friction;
+                part.mass = part._original.mass;
+                part.inertia = part._original.inertia;
+                part.density = part._original.density;
+                part.inverseMass = part._original.inverseMass;
+                part.inverseInertia = part._original.inverseInertia;
+
+                part._original = null;
             }
         }
     };
 
     /**
-     * Sets the mass of the body. Inverse mass and density are automatically updated to reflect the change.
+     * Sets the mass of the body. Inverse mass, density and inertia are automatically updated to reflect the change.
      * @method setMass
      * @param {body} body
      * @param {number} mass
      */
     Body.setMass = function(body, mass) {
+        var moment = body.inertia / (body.mass / 6);
+        body.inertia = moment * (mass / 6);
+        body.inverseInertia = 1 / body.inertia;
+
         body.mass = mass;
         body.inverseMass = 1 / body.mass;
         body.density = body.mass / body.area;
     };
 
     /**
-     * Sets the density of the body. Mass is automatically updated to reflect the change.
+     * Sets the density of the body. Mass and inertia are automatically updated to reflect the change.
      * @method setDensity
      * @param {body} body
      * @param {number} density
@@ -275,7 +316,7 @@ var Axes = require('../geometry/Axes');
     };
 
     /**
-     * Sets the moment of inertia (i.e. second moment of area) of the body of the body. 
+     * Sets the moment of inertia (i.e. second moment of area) of the body. 
      * Inverse inertia is automatically updated to reflect the change. Mass is not changed.
      * @method setInertia
      * @param {body} body
@@ -372,7 +413,7 @@ var Axes = require('../geometry/Axes');
         }
 
         // sum the properties of all compound parts of the parent body
-        var total = _totalProperties(body);
+        var total = Body._totalProperties(body);
 
         body.area = total.area;
         body.parent = body;
@@ -384,6 +425,31 @@ var Axes = require('../geometry/Axes');
         Body.setMass(body, total.mass);
         Body.setInertia(body, total.inertia);
         Body.setPosition(body, total.centre);
+    };
+
+    /**
+     * Set the centre of mass of the body. 
+     * The `centre` is a vector in world-space unless `relative` is set, in which case it is a translation.
+     * The centre of mass is the point the body rotates about and can be used to simulate non-uniform density.
+     * This is equal to moving `body.position` but not the `body.vertices`.
+     * Invalid if the `centre` falls outside the body's convex hull.
+     * @method setCentre
+     * @param {body} body
+     * @param {vector} centre
+     * @param {bool} relative
+     */
+    Body.setCentre = function(body, centre, relative) {
+        if (!relative) {
+            body.positionPrev.x = centre.x - (body.position.x - body.positionPrev.x);
+            body.positionPrev.y = centre.y - (body.position.y - body.positionPrev.y);
+            body.position.x = centre.x;
+            body.position.y = centre.y;
+        } else {
+            body.positionPrev.x += centre.x;
+            body.positionPrev.y += centre.y;
+            body.position.x += centre.x;
+            body.position.y += centre.y;
+        }
     };
 
     /**
@@ -469,9 +535,24 @@ var Axes = require('../geometry/Axes');
      * @method rotate
      * @param {body} body
      * @param {number} rotation
+     * @param {vector} [point]
      */
-    Body.rotate = function(body, rotation) {
-        Body.setAngle(body, body.angle + rotation);
+    Body.rotate = function(body, rotation, point) {
+        if (!point) {
+            Body.setAngle(body, body.angle + rotation);
+        } else {
+            var cos = Math.cos(rotation),
+                sin = Math.sin(rotation),
+                dx = body.position.x - point.x,
+                dy = body.position.y - point.y;
+                
+            Body.setPosition(body, {
+                x: point.x + (dx * cos - dy * sin),
+                y: point.y + (dx * sin + dy * cos)
+            });
+
+            Body.setAngle(body, body.angle + rotation);
+        }
     };
 
     /**
@@ -483,27 +564,48 @@ var Axes = require('../geometry/Axes');
      * @param {vector} [point]
      */
     Body.scale = function(body, scaleX, scaleY, point) {
+        var totalArea = 0,
+            totalInertia = 0;
+
+        point = point || body.position;
+
         for (var i = 0; i < body.parts.length; i++) {
             var part = body.parts[i];
 
             // scale vertices
-            Vertices.scale(part.vertices, scaleX, scaleY, body.position);
+            Vertices.scale(part.vertices, scaleX, scaleY, point);
 
             // update properties
             part.axes = Axes.fromVertices(part.vertices);
+            part.area = Vertices.area(part.vertices);
+            Body.setMass(part, body.density * part.area);
 
-            if (!body.isStatic) {
-                part.area = Vertices.area(part.vertices);
-                Body.setMass(part, body.density * part.area);
+            // update inertia (requires vertices to be at origin)
+            Vertices.translate(part.vertices, { x: -part.position.x, y: -part.position.y });
+            Body.setInertia(part, Body._inertiaScale * Vertices.inertia(part.vertices, part.mass));
+            Vertices.translate(part.vertices, { x: part.position.x, y: part.position.y });
 
-                // update inertia (requires vertices to be at origin)
-                Vertices.translate(part.vertices, { x: -part.position.x, y: -part.position.y });
-                Body.setInertia(part, Vertices.inertia(part.vertices, part.mass));
-                Vertices.translate(part.vertices, { x: part.position.x, y: part.position.y });
+            if (i > 0) {
+                totalArea += part.area;
+                totalInertia += part.inertia;
             }
+
+            // scale position
+            part.position.x = point.x + (part.position.x - point.x) * scaleX;
+            part.position.y = point.y + (part.position.y - point.y) * scaleY;
 
             // update bounds
             Bounds.update(part.bounds, part.vertices, body.velocity);
+        }
+
+        // handle parent body
+        if (body.parts.length > 1) {
+            body.area = totalArea;
+
+            if (!body.isStatic) {
+                Body.setMass(body, body.density * totalArea);
+                Body.setInertia(body, totalInertia);
+            }
         }
 
         // handle circles
@@ -514,13 +616,6 @@ var Axes = require('../geometry/Axes');
                 // body is no longer a circle
                 body.circleRadius = null;
             }
-        }
-
-        if (!body.isStatic) {
-            var total = _totalProperties(body);
-            body.area = total.area;
-            Body.setMass(body, total.mass);
-            Body.setInertia(body, total.inertia);
         }
     };
 
@@ -602,7 +697,8 @@ var Axes = require('../geometry/Axes');
      * @param {body} body
      * @return {}
      */
-    var _totalProperties = function(body) {
+    Body._totalProperties = function(body) {
+        // from equations at:
         // https://ecourses.ou.edu/cgi-bin/ebook.cgi?doc=&topic=st&chap_sec=07.2&page=theory
         // http://output.to/sideway/default.asp?qno=121100087
 
@@ -615,16 +711,16 @@ var Axes = require('../geometry/Axes');
 
         // sum the properties of all compound parts of the parent body
         for (var i = body.parts.length === 1 ? 0 : 1; i < body.parts.length; i++) {
-            var part = body.parts[i];
-            properties.mass += part.mass;
+            var part = body.parts[i],
+                mass = part.mass !== Infinity ? part.mass : 1;
+
+            properties.mass += mass;
             properties.area += part.area;
             properties.inertia += part.inertia;
-            properties.centre = Vector.add(properties.centre, 
-                                           Vector.mult(part.position, part.mass !== Infinity ? part.mass : 1));
+            properties.centre = Vector.add(properties.centre, Vector.mult(part.position, mass));
         }
 
-        properties.centre = Vector.div(properties.centre, 
-                                       properties.mass !== Infinity ? properties.mass : body.parts.length);
+        properties.centre = Vector.div(properties.centre, properties.mass);
 
         return properties;
     };
@@ -695,6 +791,13 @@ var Axes = require('../geometry/Axes');
      *
      * @property parts
      * @type body[]
+     */
+
+    /**
+     * An object reserved for storing plugin-specific properties.
+     *
+     * @property plugin
+     * @type {}
      */
 
     /**
@@ -1057,7 +1160,7 @@ var Axes = require('../geometry/Axes');
      * @default 1
      */
 
-     /**
+    /**
       * A `Number` that defines the offset in the x-axis for the sprite (normalised by texture width).
       *
       * @property render.sprite.xOffset
@@ -1065,7 +1168,7 @@ var Axes = require('../geometry/Axes');
       * @default 0
       */
 
-     /**
+    /**
       * A `Number` that defines the offset in the y-axis for the sprite (normalised by texture height).
       *
       * @property render.sprite.yOffset
@@ -1079,7 +1182,7 @@ var Axes = require('../geometry/Axes');
      *
      * @property render.lineWidth
      * @type number
-     * @default 1.5
+     * @default 0
      */
 
     /**

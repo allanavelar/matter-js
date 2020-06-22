@@ -15,6 +15,7 @@ module.exports = Composite;
 
 var Events = require('../core/Events');
 var Common = require('../core/Common');
+var Bounds = require('../geometry/Bounds');
 var Body = require('./Body');
 
 (function() {
@@ -35,7 +36,8 @@ var Body = require('./Body');
             bodies: [], 
             constraints: [], 
             composites: [],
-            label: 'Composite'
+            label: 'Composite',
+            plugin: {}
         }, options);
     };
 
@@ -438,8 +440,8 @@ var Body = require('./Body');
      */
     Composite.rebase = function(composite) {
         var objects = Composite.allBodies(composite)
-                        .concat(Composite.allConstraints(composite))
-                        .concat(Composite.allComposites(composite));
+            .concat(Composite.allConstraints(composite))
+            .concat(Composite.allComposites(composite));
 
         for (var i = 0; i < objects.length; i++) {
             objects[i].id = Common.nextId();
@@ -529,6 +531,24 @@ var Body = require('./Body');
         Composite.setModified(composite, true, true, false);
 
         return composite;
+    };
+
+    /**
+     * Returns the union of the bounds of all of the composite's bodies.
+     * @method bounds
+     * @param {composite} composite The composite.
+     * @returns {bounds} The composite bounds.
+     */
+    Composite.bounds = function(composite) {
+        var bodies = Composite.allBodies(composite),
+            vertices = [];
+
+        for (var i = 0; i < bodies.length; i += 1) {
+            var body = bodies[i];
+            vertices.push(body.bounds.min, body.bounds.max);
+        }
+
+        return Bounds.create(vertices);
     };
 
     /*
@@ -653,6 +673,13 @@ var Body = require('./Body');
      * @property composites
      * @type composite[]
      * @default []
+     */
+
+    /**
+     * An object reserved for storing plugin-specific properties.
+     *
+     * @property plugin
+     * @type {}
      */
 
 })();

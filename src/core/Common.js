@@ -12,6 +12,7 @@ module.exports = Common;
 
     Common._nextId = 0;
     Common._seed = 0;
+    Common._nowStartTime = +(new Date());
 
     /**
      * Extends the object in the first argument using the object in the second argument.
@@ -33,10 +34,8 @@ module.exports = Common;
             deepClone = true;
         }
 
-        args = Array.prototype.slice.call(arguments, argsStart);
-
-        for (var i = 0; i < args.length; i++) {
-            var source = args[i];
+        for (var i = argsStart; i < arguments.length; i++) {
+            var source = arguments[i];
 
             if (source) {
                 for (var prop in source) {
@@ -109,22 +108,38 @@ module.exports = Common;
     };
 
     /**
-     * Returns a hex colour string made by lightening or darkening color by percent.
-     * @method shadeColor
-     * @param {string} color
-     * @param {number} percent
-     * @return {string} A hex colour
+     * Gets a value from `base` relative to the `path` string.
+     * @method get
+     * @param {} obj The base object
+     * @param {string} path The path relative to `base`, e.g. 'Foo.Bar.baz'
+     * @param {number} [begin] Path slice begin
+     * @param {number} [end] Path slice end
+     * @return {} The object at the given path
      */
-    Common.shadeColor = function(color, percent) {   
-        // http://stackoverflow.com/questions/5560248/programmatically-lighten-or-darken-a-hex-color
-        var colorInteger = parseInt(color.slice(1),16), 
-            amount = Math.round(2.55 * percent), 
-            R = (colorInteger >> 16) + amount, 
-            B = (colorInteger >> 8 & 0x00FF) + amount, 
-            G = (colorInteger & 0x0000FF) + amount;
-        return "#" + (0x1000000 + (R < 255 ? R < 1 ? 0 : R :255) * 0x10000 
-                + (B < 255 ? B < 1 ? 0 : B : 255) * 0x100 
-                + (G < 255 ? G < 1 ? 0 : G : 255)).toString(16).slice(1);
+    Common.get = function(obj, path, begin, end) {
+        path = path.split('.').slice(begin, end);
+
+        for (var i = 0; i < path.length; i += 1) {
+            obj = obj[path[i]];
+        }
+
+        return obj;
+    };
+
+    /**
+     * Sets a value on `base` relative to the given `path` string.
+     * @method set
+     * @param {} obj The base object
+     * @param {string} path The path relative to `base`, e.g. 'Foo.Bar.baz'
+     * @param {} val The value to set
+     * @param {number} [begin] Path slice begin
+     * @param {number} [end] Path slice end
+     * @return {} Pass through `val` for chaining
+     */
+    Common.set = function(obj, path, val, begin, end) {
+        var parts = path.split('.').slice(begin, end);
+        Common.get(obj, path, 0, -1)[parts[parts.length - 1]] = val;
+        return val;
     };
 
     /**
@@ -162,15 +177,11 @@ module.exports = Common;
      * @return {boolean} True if the object is a HTMLElement, otherwise false
      */
     Common.isElement = function(obj) {
-        // http://stackoverflow.com/questions/384286/javascript-isdom-how-do-you-check-if-a-javascript-object-is-a-dom-object
-        try {
+        if (typeof HTMLElement !== 'undefined') {
             return obj instanceof HTMLElement;
         }
-        catch(e){
-            return (typeof obj==="object") &&
-              (obj.nodeType===1) && (typeof obj.style === "object") &&
-              (typeof obj.ownerDocument ==="object");
-        }
+
+        return !!(obj && obj.nodeType && obj.nodeName);
     };
 
     /**
@@ -240,26 +251,21 @@ module.exports = Common;
     };
     
     /**
-     * Returns the current timestamp (high-res if available).
+     * Returns the current timestamp since the time origin (e.g. from page load).
+     * The result will be high-resolution including decimal places if available.
      * @method now
-     * @return {number} the current timestamp (high-res if available)
+     * @return {number} the current timestamp
      */
     Common.now = function() {
-        // http://stackoverflow.com/questions/221294/how-do-you-get-a-timestamp-in-javascript
-        // https://gist.github.com/davidwaterston/2982531
+        if (typeof window !== 'undefined' && window.performance) {
+            if (window.performance.now) {
+                return window.performance.now();
+            } else if (window.performance.webkitNow) {
+                return window.performance.webkitNow();
+            }
+        }
 
-        var performance = window.performance || {};
-
-        performance.now = (function() {
-            return performance.now    ||
-            performance.webkitNow     ||
-            performance.msNow         ||
-            performance.oNow          ||
-            performance.mozNow        ||
-            function() { return +(new Date()); };
-        })();
-              
-        return performance.now();
+        return (new Date()) - Common._nowStartTime;
     };
     
     /**
@@ -277,7 +283,7 @@ module.exports = Common;
     };
 
     var _seededRandom = function() {
-        // https://gist.github.com/ngryman/3830489
+        // https://en.wikipedia.org/wiki/Linear_congruential_generator
         Common._seed = (Common._seed * 9301 + 49297) % 233280;
         return Common._seed / 233280;
     };
@@ -409,21 +415,23 @@ module.exports = Common;
      * @return {array} Partially ordered set of vertices in topological order.
      */
     Common.topologicalSort = function(graph) {
-        // https://mgechev.github.io/javascript-algorithms/graphs_others_topological-sort.js.html
+        // https://github.com/mgechev/javascript-algorithms
+        // Copyright (c) Minko Gechev (MIT license)
+        // Modifications: tidy formatting and naming
         var result = [],
             visited = [],
             temp = [];
 
         for (var node in graph) {
             if (!visited[node] && !temp[node]) {
-                _topologicalSort(node, visited, temp, graph, result);
+                Common._topologicalSort(node, visited, temp, graph, result);
             }
         }
 
         return result;
     };
 
-    var _topologicalSort = function(node, visited, temp, graph, result) {
+    Common._topologicalSort = function(node, visited, temp, graph, result) {
         var neighbors = graph[node] || [];
         temp[node] = true;
 
@@ -436,7 +444,7 @@ module.exports = Common;
             }
 
             if (!visited[neighbor]) {
-                _topologicalSort(neighbor, visited, temp, graph, result);
+                Common._topologicalSort(neighbor, visited, temp, graph, result);
             }
         }
 
@@ -458,11 +466,10 @@ module.exports = Common;
      * @return {function} A new function that calls the passed functions in order.
      */
     Common.chain = function() {
-        var args = Array.prototype.slice.call(arguments),
-            funcs = [];
+        var funcs = [];
 
-        for (var i = 0; i < args.length; i += 1) {
-            var func = args[i];
+        for (var i = 0; i < arguments.length; i += 1) {
+            var func = arguments[i];
 
             if (func._chained) {
                 // flatten already chained functions
@@ -473,10 +480,16 @@ module.exports = Common;
         }
 
         var chain = function() {
-            var lastResult;
+            // https://github.com/GoogleChrome/devtools-docs/issues/53#issuecomment-51941358
+            var lastResult,
+                args = new Array(arguments.length);
 
-            for (var i = 0; i < funcs.length; i += 1) {
-                var result = funcs[i].apply(lastResult, arguments);
+            for (var i = 0, l = arguments.length; i < l; i++) {
+                args[i] = arguments[i];
+            }
+
+            for (i = 0; i < funcs.length; i += 1) {
+                var result = funcs[i].apply(lastResult, args);
 
                 if (typeof result !== 'undefined') {
                     lastResult = result;
@@ -491,4 +504,35 @@ module.exports = Common;
         return chain;
     };
 
+    /**
+     * Chains a function to excute before the original function on the given `path` relative to `base`.
+     * See also docs for `Common.chain`.
+     * @method chainPathBefore
+     * @param {} base The base object
+     * @param {string} path The path relative to `base`
+     * @param {function} func The function to chain before the original
+     * @return {function} The chained function that replaced the original
+     */
+    Common.chainPathBefore = function(base, path, func) {
+        return Common.set(base, path, Common.chain(
+            func,
+            Common.get(base, path)
+        ));
+    };
+
+    /**
+     * Chains a function to excute after the original function on the given `path` relative to `base`.
+     * See also docs for `Common.chain`.
+     * @method chainPathAfter
+     * @param {} base The base object
+     * @param {string} path The path relative to `base`
+     * @param {function} func The function to chain after the original
+     * @return {function} The chained function that replaced the original
+     */
+    Common.chainPathAfter = function(base, path, func) {
+        return Common.set(base, path, Common.chain(
+            Common.get(base, path),
+            func
+        ));
+    };
 })();

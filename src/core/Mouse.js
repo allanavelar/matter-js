@@ -34,7 +34,7 @@ var Common = require('../core/Common');
         mouse.scale = { x: 1, y: 1 };
         mouse.wheelDelta = 0;
         mouse.button = -1;
-        mouse.pixelRatio = mouse.element.getAttribute('data-pixel-ratio') || 1;
+        mouse.pixelRatio = parseInt(mouse.element.getAttribute('data-pixel-ratio'), 10) || 1;
 
         mouse.sourceEvents = {
             mousemove: null,
@@ -44,7 +44,7 @@ var Common = require('../core/Common');
         };
         
         mouse.mousemove = function(event) { 
-            var position = _getRelativeMousePosition(event, mouse.element, mouse.pixelRatio),
+            var position = Mouse._getRelativeMousePosition(event, mouse.element, mouse.pixelRatio),
                 touches = event.changedTouches;
 
             if (touches) {
@@ -60,7 +60,7 @@ var Common = require('../core/Common');
         };
         
         mouse.mousedown = function(event) {
-            var position = _getRelativeMousePosition(event, mouse.element, mouse.pixelRatio),
+            var position = Mouse._getRelativeMousePosition(event, mouse.element, mouse.pixelRatio),
                 touches = event.changedTouches;
 
             if (touches) {
@@ -80,7 +80,7 @@ var Common = require('../core/Common');
         };
         
         mouse.mouseup = function(event) {
-            var position = _getRelativeMousePosition(event, mouse.element, mouse.pixelRatio),
+            var position = Mouse._getRelativeMousePosition(event, mouse.element, mouse.pixelRatio),
                 touches = event.changedTouches;
 
             if (touches) {
@@ -176,7 +176,7 @@ var Common = require('../core/Common');
      * @param {number} pixelRatio
      * @return {}
      */
-    var _getRelativeMousePosition = function(event, element, pixelRatio) {
+    Mouse._getRelativeMousePosition = function(event, element, pixelRatio) {
         var elementBounds = element.getBoundingClientRect(),
             rootNode = (document.documentElement || document.body.parentNode || document.body),
             scrollX = (window.pageXOffset !== undefined) ? window.pageXOffset : rootNode.scrollLeft,

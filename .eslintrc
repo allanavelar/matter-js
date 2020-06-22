@@ -1,7 +1,9 @@
 {
     "rules": {
+        "no-fallthrough": 2,
         "no-console": 0,
         "no-unused-vars": 0,
+        "no-redeclare": 0,
         "indent": [
             2,
             4
@@ -29,7 +31,6 @@
         "require": false,
         "PIXI": false,
         "$": false,
-        "Example": false,
         "Image": false,
         "navigator": false,
         "setTimeout": false,
@@ -63,7 +64,13 @@
         "Query": false,
         "Runner": false,
         "Svg": false,
-        "Metrics": false
+        "Metrics": false,
+        "Example": false,
+        "__MATTER_VERSION__": false,
+        "jest": false,
+        "test": false,
+        "expect": false,
+        "describe": false
     },
     "extends": "eslint:recommended"
 }

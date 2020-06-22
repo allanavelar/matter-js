@@ -62,14 +62,16 @@ module.exports = Vector;
      * @method rotate
      * @param {vector} vector
      * @param {number} angle
-     * @return {vector} A new vector rotated about (0, 0)
+     * @param {vector} [output]
+     * @return {vector} The vector rotated about (0, 0)
      */
-    Vector.rotate = function(vector, angle) {
+    Vector.rotate = function(vector, angle, output) {
         var cos = Math.cos(angle), sin = Math.sin(angle);
-        return {
-            x: vector.x * cos - vector.y * sin,
-            y: vector.x * sin + vector.y * cos
-        };
+        if (!output) output = {};
+        var x = vector.x * cos - vector.y * sin;
+        output.y = vector.x * sin + vector.y * cos;
+        output.x = x;
+        return output;
     };
 
     /**
@@ -212,7 +214,7 @@ module.exports = Vector;
     };
 
     /**
-     * Returns the angle in radians between the two vectors relative to the x-axis.
+     * Returns the angle between the vector `vectorB - vectorA` and the x-axis in radians.
      * @method angle
      * @param {vector} vectorA
      * @param {vector} vectorB
@@ -228,8 +230,10 @@ module.exports = Vector;
      * @type {vector[]}
      * @private
      */
-    Vector._temp = [Vector.create(), Vector.create(), 
-                    Vector.create(), Vector.create(), 
-                    Vector.create(), Vector.create()];
+    Vector._temp = [
+        Vector.create(), Vector.create(), 
+        Vector.create(), Vector.create(), 
+        Vector.create(), Vector.create()
+    ];
 
 })();

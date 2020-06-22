@@ -33,6 +33,7 @@ var Contact = require('./Contact');
             activeContacts: [],
             separation: 0,
             isActive: true,
+            confirmedActive: true,
             isSensor: bodyA.isSensor || bodyB.isSensor,
             timeCreated: timestamp,
             timeUpdated: timestamp,
@@ -117,9 +118,9 @@ var Contact = require('./Contact');
      */
     Pair.id = function(bodyA, bodyB) {
         if (bodyA.id < bodyB.id) {
-            return bodyA.id + '_' + bodyB.id;
+            return 'A' + bodyA.id + 'B' + bodyB.id;
         } else {
-            return bodyB.id + '_' + bodyA.id;
+            return 'A' + bodyB.id + 'B' + bodyA.id;
         }
     };
 

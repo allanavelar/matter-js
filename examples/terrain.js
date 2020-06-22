@@ -1,23 +1,44 @@
-(function() {
+var Example = Example || {};
 
-    var World = Matter.World,
-        Bodies = Matter.Bodies,
+Example.terrain = function() {
+    var Engine = Matter.Engine,
+        Render = Matter.Render,
+        Runner = Matter.Runner,
         Composites = Matter.Composites,
         Common = Matter.Common,
+        MouseConstraint = Matter.MouseConstraint,
+        Mouse = Matter.Mouse,
+        World = Matter.World,
         Query = Matter.Query,
-        Svg = Matter.Svg;
+        Svg = Matter.Svg,
+        Bodies = Matter.Bodies;
 
-    Example.terrain = function(demo) {
-        var engine = demo.engine,
-            world = engine.world;
+    // create engine
+    var engine = Engine.create(),
+        world = engine.world;
 
-        world.bodies = [];
+    // create renderer
+    var render = Render.create({
+        element: document.body,
+        engine: engine,
+        options: {
+            width: 800,
+            height: 600
+        }
+    });
 
-        var terrain;
+    Render.run(render);
 
+    // create runner
+    var runner = Runner.create();
+    Runner.run(runner, engine);
+
+    // add bodies
+    var terrain;
+
+    if (typeof $ !== 'undefined') {
         $.get('./svg/terrain.svg').done(function(data) {
-            var vertexSets = [],
-                color = Common.choose(['#556270', '#4ECDC4', '#C7F464', '#FF6B6B', '#C44D58']);
+            var vertexSets = [];
 
             $(data).find('path').each(function(i, path) {
                 vertexSets.push(Svg.pathToVertices(path, 30));
@@ -26,8 +47,9 @@
             terrain = Bodies.fromVertices(400, 350, vertexSets, {
                 isStatic: true,
                 render: {
-                    fillStyle: color,
-                    strokeStyle: color
+                    fillStyle: '#2e2b44',
+                    strokeStyle: '#2e2b44',
+                    lineWidth: 1
                 }
             }, true);
 
@@ -45,10 +67,44 @@
                 }
             }));
         });
+    }
 
-        var renderOptions = demo.render.options;
-        renderOptions.showAngleIndicator = false;
-        renderOptions.showVelocity = true;
+    // add mouse control
+    var mouse = Mouse.create(render.canvas),
+        mouseConstraint = MouseConstraint.create(engine, {
+            mouse: mouse,
+            constraint: {
+                stiffness: 0.2,
+                render: {
+                    visible: false
+                }
+            }
+        });
+
+    World.add(world, mouseConstraint);
+
+    // keep the mouse in sync with rendering
+    render.mouse = mouse;
+
+    // fit the render viewport to the scene
+    Render.lookAt(render, {
+        min: { x: 0, y: 0 },
+        max: { x: 800, y: 600 }
+    });
+
+    // context for MatterTools.Demo
+    return {
+        engine: engine,
+        runner: runner,
+        render: render,
+        canvas: render.canvas,
+        stop: function() {
+            Matter.Render.stop(render);
+            Matter.Runner.stop(runner);
+        }
     };
+};
 
-})();
+if (typeof module !== 'undefined') {
+    module.exports = Example;
+}
